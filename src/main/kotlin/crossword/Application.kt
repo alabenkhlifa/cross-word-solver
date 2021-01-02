@@ -20,9 +20,9 @@ val finished = AtomicInteger()
 var log: Logger = LoggerFactory.getLogger("")
 fun main(args: Array<String>) = runBlocking<Unit> {
     val measureTimeMillis = measureTimeMillis {
-        readCrossWords("wordpuzzel.png")
+        readCrossWords("wordpuzzel12x5.png")
         isMatrixValidOrThrow()
-//        printMatrixElements()
+        initResultMap()
         log.info("longestWordRight : ${longestWordByDirection(Directions.RIGHT)}")
     }
     log.info("(The operation took $measureTimeMillis ms)")
@@ -112,25 +112,21 @@ private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: Stri
         printPercentage(totalNumberOfCombination)
         jobs.add(ioScope.launch {
             val dropRight = word.dropLast(word.length - index)
-            if (allResults[lineNumber].isNullOrEmpty().not() &&
-                allResults[lineNumber]!!.contains(dropRight).not() &&
+            if (allResults[lineNumber]!!.contains(dropRight).not() &&
                 wordExists(dropRight)
             ) {
                 log.debug("word found : $dropRight")
-                allResults.computeIfPresent(lineNumber)
-                { _, oldValue ->
-                    if (oldValue.contains(dropRight).not()) {
-                        oldValue.add(dropRight)
-                    }
-                    oldValue
-                }
-            } else if (allResults[lineNumber].isNullOrEmpty() && wordExists(dropRight)) {
-                log.debug("word found : $dropRight")
-                allResults[lineNumber] = mutableListOf(dropRight)
+                allResults[lineNumber]!!.add(dropRight)
             }
         })
     }
     jobs.joinAll()
+}
+
+private fun initResultMap() {
+    for (lineNumber in 0 until getLineCount()) {
+        allResults[lineNumber] = mutableListOf()
+    }
 }
 
 private fun printPercentage(totalNumberOfCombination: Float) {
