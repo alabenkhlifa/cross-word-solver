@@ -7,19 +7,14 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.system.exitProcess
 import kotlin.system.measureTimeMillis
 
 var matrix: MutableList<List<Char>> = mutableListOf()
-var minimaumWordLength = 3
-private val ioScope = CoroutineScope(Dispatchers.IO + Job())
+var allResults: MutableMap<Int, MutableList<String?>> = mutableMapOf()
+const val minimumWordLength = 3
+val ioScope = CoroutineScope(Dispatchers.IO + Job())
 val finished = AtomicInteger()
-val string = AtomicReference("")
-val bool = AtomicReference(false)
-
-@ObsoleteCoroutinesApi
-val counterContext = newSingleThreadContext("CounterContext")
 
 fun main(args: Array<String>) = runBlocking<Unit> {
     val measureTimeMillis = measureTimeMillis {
@@ -64,7 +59,11 @@ private suspend fun wordExists(word: String): Boolean {
                 .build()
         )
             .execute()
+
         response.close()
+        if (response.code() == 403) {
+            error("Too many request on the dictionnary API, please try again later")
+        }
         response.isSuccessful
     }
 }
@@ -76,17 +75,21 @@ private suspend fun longestWordByDirection(direction: Directions): MutableMap<In
         else -> longestWordRight()
     }
 
-
-private suspend fun longestWordRight(): MutableMap<Int, String?>? {
+private suspend fun longestWordRight(): MutableMap<Int, String?> {
     val resultMap: MutableMap<Int, String?> = mutableMapOf()
     (0 until getLineCount()).forEach {
-        resultMap[it.plus(1)] = longestWordRightByLineV2(it)
+        longestWordRightByLineV2(it)
+    }
+    println("[RIGHT] all words found : $allResults")
+    allResults.forEach { (key, value) ->
+        value.sortByDescending { it?.length }
+        resultMap[key] = value[0]
     }
     return resultMap
 }
 
-private suspend fun longestWordRightByLineV2(lineNumber: Int): String? { // line : 0
-    val longestPotentialWordPerLine = getColumnCount() + 1 - minimaumWordLength
+private suspend fun longestWordRightByLineV2(lineNumber: Int) { // line : 0
+    val longestPotentialWordPerLine = getColumnCount() + 1 - minimumWordLength
     val totalCombinisationInPerLine = IntRange(1, longestPotentialWordPerLine).sum()
     val totalNumberOfCombination = (getLineCount() * totalCombinisationInPerLine).toFloat() //60
     val line = matrix[lineNumber]
@@ -96,27 +99,32 @@ private suspend fun longestWordRightByLineV2(lineNumber: Int): String? { // line
     for (letterIndex in fullLine.indices) {
         val word = fullLine.substring(letterIndex)
         if (word.length >= 3) {
-            dropLastAndCheck(totalNumberOfCombination, word)
+            dropLastAndCheck(totalNumberOfCombination, word, lineNumber)
         }
     }
-    return string.acquire
 }
 
-private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: String) {
+private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: String, lineNumber: Int) {
     val jobs = ArrayList<Job>()
-    for (index in word.length downTo minimaumWordLength) {
-        string.set("")
+    for (index in word.length downTo minimumWordLength) {
         printPercentage(totalNumberOfCombination)
         jobs.add(ioScope.launch {
-            if (bool.acquire.not()) {
-                val dropRight = word.dropLast(word.length - index)
-                bool.set(withContext(Dispatchers.IO) {
-                    wordExists(dropRight).or(bool.acquire)
-                })
-                if (bool.acquire) {
-                    string.set(dropRight)
-                    bool.set(false)
+            val dropRight = word.dropLast(word.length - index)
+            if (allResults[lineNumber].isNullOrEmpty().not() &&
+                allResults[lineNumber]!!.contains(dropRight).not() &&
+                wordExists(dropRight)
+            ) {
+                println("word found : $dropRight")
+                allResults.computeIfPresent(lineNumber)
+                { _, oldValue ->
+                    if (oldValue.contains(dropRight).not()) {
+                        oldValue.add(dropRight)
+                    }
+                    oldValue
                 }
+            } else if (allResults[lineNumber].isNullOrEmpty() && wordExists(dropRight)) {
+                println("word found : $dropRight")
+                allResults[lineNumber] = mutableListOf(dropRight)
             }
         })
     }
@@ -127,55 +135,6 @@ private fun printPercentage(totalNumberOfCombination: Float) {
     val counter = finished.incrementAndGet().toFloat()
     val percentage = counter.div(totalNumberOfCombination) * 100.toFloat()
     println("${String.format("%.2f", percentage)}% Finished")
-}
-
-//private fun recursive(word: String, wordFound: Boolean = false): String? {
-//    if(wordFound)
-//        return null
-//    else {
-//        return recursive()
-//    }
-//}
-
-
-// FIXME: replace this algorithm is wrong
-private suspend fun longestWordRightByLine(lineNumber: Int): String? {
-    var theFoundWord: String? = null
-    val line = matrix[lineNumber]
-    val word = line
-        .map { it.toString() }
-        .reduce { acc, char -> "$acc$char" }
-    println("$word : ${wordExists(word)}")
-    var wordFound = withContext(Dispatchers.IO) { wordExists(word) }
-    if (wordFound)
-        theFoundWord = word
-    for (numberOfDroppedLetters in 1 until (getColumnCount() - 3)) {
-        if (wordFound.not()) {
-            val dropLeft = word.drop(numberOfDroppedLetters)
-            wordFound = withContext(Dispatchers.IO) { wordExists(dropLeft).or(wordFound) }
-            println("$dropLeft : ${wordExists(dropLeft)}")
-            if (wordFound) {
-                theFoundWord = dropLeft
-            }
-        }
-        if (wordFound.not()) {
-            val dropRight = word.dropLast(numberOfDroppedLetters)
-            wordFound = withContext(Dispatchers.IO) { wordExists(dropRight).or(wordFound) }
-            println("$dropRight : ${wordExists(dropRight)}")
-            if (wordFound) {
-                theFoundWord = dropRight
-            }
-        }
-        if (wordFound.not() && numberOfDroppedLetters > 1) {
-            val dropBoth = word.dropLast(numberOfDroppedLetters - 1).drop(numberOfDroppedLetters - 1)
-            wordFound = withContext(Dispatchers.IO) { wordExists(dropBoth).or(wordFound) }
-            println("$dropBoth : ${wordExists(dropBoth)}")
-            if (wordFound) {
-                theFoundWord = dropBoth
-            }
-        }
-    }
-    return theFoundWord
 }
 
 private fun getDiffBetweenColumnsAndLines(): Int {
