@@ -5,6 +5,8 @@ import net.sourceforge.tess4j.Tesseract
 import net.sourceforge.tess4j.TesseractException
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.exitProcess
@@ -15,15 +17,15 @@ var allResults: MutableMap<Int, MutableList<String?>> = mutableMapOf()
 const val minimumWordLength = 3
 val ioScope = CoroutineScope(Dispatchers.IO + Job())
 val finished = AtomicInteger()
-
+var log: Logger = LoggerFactory.getLogger("")
 fun main(args: Array<String>) = runBlocking<Unit> {
     val measureTimeMillis = measureTimeMillis {
         readCrossWords("wordpuzzel.png")
         isMatrixValidOrThrow()
 //        printMatrixElements()
-        println("longestWordRight : ${longestWordByDirection(Directions.RIGHT)}")
+        log.info("longestWordRight : ${longestWordByDirection(Directions.RIGHT)}")
     }
-    println("(The operation took $measureTimeMillis ms)")
+    log.info("(The operation took $measureTimeMillis ms)")
     exitProcess(0)
 }
 
@@ -45,7 +47,7 @@ private fun readCrossWords(imageName: String) {
 
 private fun printMatrixElements() {
     matrix.forEach {
-        println("$it : ${it.size}")
+        log.info("$it : ${it.size}")
     }
 }
 
@@ -80,7 +82,7 @@ private suspend fun longestWordRight(): MutableMap<Int, String?> {
     (0 until getLineCount()).forEach {
         longestWordRightByLineV2(it)
     }
-    println("[RIGHT] all words found : $allResults")
+    log.debug("[RIGHT] all words found : $allResults")
     allResults.forEach { (key, value) ->
         value.sortByDescending { it?.length }
         resultMap[key] = value[0]
@@ -114,7 +116,7 @@ private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: Stri
                 allResults[lineNumber]!!.contains(dropRight).not() &&
                 wordExists(dropRight)
             ) {
-                println("word found : $dropRight")
+                log.debug("word found : $dropRight")
                 allResults.computeIfPresent(lineNumber)
                 { _, oldValue ->
                     if (oldValue.contains(dropRight).not()) {
@@ -123,7 +125,7 @@ private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: Stri
                     oldValue
                 }
             } else if (allResults[lineNumber].isNullOrEmpty() && wordExists(dropRight)) {
-                println("word found : $dropRight")
+                log.debug("word found : $dropRight")
                 allResults[lineNumber] = mutableListOf(dropRight)
             }
         })
@@ -134,7 +136,7 @@ private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: Stri
 private fun printPercentage(totalNumberOfCombination: Float) {
     val counter = finished.incrementAndGet().toFloat()
     val percentage = counter.div(totalNumberOfCombination) * 100.toFloat()
-    println("${String.format("%.2f", percentage)}% Finished")
+    log.info("${String.format("%.2f", percentage)}% Finished")
 }
 
 private fun getDiffBetweenColumnsAndLines(): Int {
