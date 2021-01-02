@@ -18,6 +18,8 @@ const val minimumWordLength = 3
 val ioScope = CoroutineScope(Dispatchers.IO + Job())
 val finished = AtomicInteger()
 var log: Logger = LoggerFactory.getLogger("")
+var validWordNumber: Int = 0
+var totalWordNumber: Int = 0
 fun main(args: Array<String>) = runBlocking<Unit> {
     val measureTimeMillis = measureTimeMillis {
         readCrossWords("wordpuzzel12x5.png")
@@ -25,7 +27,9 @@ fun main(args: Array<String>) = runBlocking<Unit> {
         initResultMap()
         log.info("longestWordRight : ${longestWordByDirection(Directions.RIGHT)}")
     }
-    log.info("(The operation took $measureTimeMillis ms)")
+    log.info("found $validWordNumber valid words of $totalWordNumber total words")
+    log.info("The operation took ${measureTimeMillis / 1000} s in total " +
+            "(${measureTimeMillis.div(totalWordNumber)} ms for each word)")
     exitProcess(0)
 }
 
@@ -83,6 +87,9 @@ private suspend fun longestWordRight(): MutableMap<Int, String?> {
         longestWordRightByLineV2(it)
     }
     log.debug("[RIGHT] all words found : $allResults")
+    var allwords: MutableList<String?> = mutableListOf()
+    allResults.values.forEach { allwords.addAll(it) }
+    validWordNumber = allwords.size
     allResults.forEach { (key, value) ->
         value.sortByDescending { it?.length }
         resultMap[key] = value[0]
@@ -93,7 +100,8 @@ private suspend fun longestWordRight(): MutableMap<Int, String?> {
 private suspend fun longestWordRightByLineV2(lineNumber: Int) { // line : 0
     val longestPotentialWordPerLine = getColumnCount() + 1 - minimumWordLength
     val totalCombinisationInPerLine = IntRange(1, longestPotentialWordPerLine).sum()
-    val totalNumberOfCombination = (getLineCount() * totalCombinisationInPerLine).toFloat() //60
+    val totalNumberOfCombination = (getLineCount() * totalCombinisationInPerLine).toFloat()
+    totalWordNumber = totalNumberOfCombination.toInt()
     val line = matrix[lineNumber]
     val fullLine = line
         .map { it.toString() }
