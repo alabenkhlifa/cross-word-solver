@@ -8,28 +8,36 @@ import okhttp3.Request
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
+import java.lang.IllegalArgumentException
 import kotlin.system.exitProcess
 import kotlin.system.measureTimeMillis
 
-var matrix: MutableList<List<Char>> = mutableListOf()
-var allResults: MutableMap<Int, MutableList<String?>> = mutableMapOf()
 const val minimumWordLength = 3
+
+var matrix: MutableList<List<Char>> = mutableListOf()
+var allResults: MutableMap<Directions, MutableMap<Int, MutableList<String?>>> = mutableMapOf()
+
+lateinit var inputArgs: List<Directions>
+
 val ioScope = CoroutineScope(Dispatchers.IO + Job())
-val finished = AtomicInteger()
+
 var log: Logger = LoggerFactory.getLogger("")
-var validWordNumber: Int = 0
-var totalWordNumber: Int = 0
+
 fun main(args: Array<String>) = runBlocking<Unit> {
+    val imageName = args.first()
     val measureTimeMillis = measureTimeMillis {
-        readCrossWords("wordpuzzel12x5.png")
+        try { inputArgs = args.drop(1).map { Directions.valueOf(it) }.toList() }
+        catch (exception: IllegalArgumentException) {
+            log.error("Invalid input directions ! Please check your inputs")
+            log.error("args should be one of theses directions : ${Directions.values().map { it.direction }.toList()}")
+            exitProcess(1)
+        }
+        readCrossWords(imageName)
         isMatrixValidOrThrow()
-        initResultMap()
-        log.info("longestWordRight : ${longestWordByDirection(Directions.RIGHT)}")
+        inputArgs.forEach { findWordsInLineByDirection(it) }
+        log.info("result : $allResults")
     }
-    log.info("found $validWordNumber valid words of $totalWordNumber total words")
-    log.info("The operation took ${measureTimeMillis / 1000} s in total " +
-            "(${measureTimeMillis.div(totalWordNumber)} ms for each word)")
+    log.info("The operation took ${measureTimeMillis / 1000} s in total")
     exitProcess(0)
 }
 
@@ -68,79 +76,72 @@ private suspend fun wordExists(word: String): Boolean {
 
         response.close()
         if (response.code() == 403) {
-            error("Too many request on the dictionnary API, please try again later")
+            log.error("Too many request on the dictionnary API, please try again later")
+            exitProcess(-1)
         }
         response.isSuccessful
     }
 }
 
 
-private suspend fun longestWordByDirection(direction: Directions): MutableMap<Int, String?>? =
+private suspend fun findWordsInLineByDirection(direction: Directions) =
     when (direction) {
-        Directions.RIGHT -> longestWordRight()
-        else -> longestWordRight()
+        Directions.RIGHT -> findWordsByRightOrLeft(Directions.RIGHT)
+        Directions.LEFT -> findWordsByRightOrLeft(Directions.LEFT)
+        else -> findWordsByRightOrLeft(Directions.RIGHT)
     }
 
-private suspend fun longestWordRight(): MutableMap<Int, String?> {
-    val resultMap: MutableMap<Int, String?> = mutableMapOf()
+private suspend fun findWordsByRightOrLeft(direction: Directions) {
+    var resultMap: MutableMap<Int, MutableList<String?>> = mutableMapOf()
+    initResultMap(resultMap)
     (0 until getLineCount()).forEach {
-        longestWordRightByLineV2(it)
+        searchByLineAndDirection(it, direction, resultMap)
     }
-    log.debug("[RIGHT] all words found : $allResults")
-    var allwords: MutableList<String?> = mutableListOf()
-    allResults.values.forEach { allwords.addAll(it) }
-    validWordNumber = allwords.size
-    allResults.forEach { (key, value) ->
-        value.sortByDescending { it?.length }
-        resultMap[key] = value[0]
-    }
-    return resultMap
+    allResults[direction] = resultMap
 }
 
-private suspend fun longestWordRightByLineV2(lineNumber: Int) { // line : 0
-    val longestPotentialWordPerLine = getColumnCount() + 1 - minimumWordLength
-    val totalCombinisationInPerLine = IntRange(1, longestPotentialWordPerLine).sum()
-    val totalNumberOfCombination = (getLineCount() * totalCombinisationInPerLine).toFloat()
-    totalWordNumber = totalNumberOfCombination.toInt()
-    val line = matrix[lineNumber]
-    val fullLine = line
+private suspend fun searchByLineAndDirection(
+    lineNumber: Int,
+    direction: Directions,
+    resultMap: MutableMap<Int, MutableList<String?>>
+) {
+    var fullLine = matrix[lineNumber]
         .map { it.toString() }
         .reduce { acc, char -> "$acc$char" }
+    if (direction == Directions.LEFT) {
+        fullLine = fullLine.reversed()
+    }
     for (letterIndex in fullLine.indices) {
         val word = fullLine.substring(letterIndex)
-        if (word.length >= 3) {
-            dropLastAndCheck(totalNumberOfCombination, word, lineNumber)
+        if (word.length >= minimumWordLength) {
+            dropLastAndCheck(word, lineNumber, resultMap)
         }
+    }
+    resultMap.forEach { (_, value) ->
+        value.sortByDescending { it?.length }
     }
 }
 
-private suspend fun dropLastAndCheck(totalNumberOfCombination: Float, word: String, lineNumber: Int) {
+private suspend fun dropLastAndCheck(word: String, lineNumber: Int, result: MutableMap<Int, MutableList<String?>>) {
     val jobs = ArrayList<Job>()
     for (index in word.length downTo minimumWordLength) {
-        printPercentage(totalNumberOfCombination)
         jobs.add(ioScope.launch {
             val dropRight = word.dropLast(word.length - index)
-            if (allResults[lineNumber]!!.contains(dropRight).not() &&
+            if (result[lineNumber]!!.contains(dropRight).not() &&
                 wordExists(dropRight)
             ) {
                 log.debug("word found : $dropRight")
-                allResults[lineNumber]!!.add(dropRight)
+                result[lineNumber]!!.add(dropRight)
             }
         })
     }
     jobs.joinAll()
 }
 
-private fun initResultMap() {
+private fun initResultMap(resultMap: MutableMap<Int, MutableList<String?>>) {
     for (lineNumber in 0 until getLineCount()) {
-        allResults[lineNumber] = mutableListOf()
+        resultMap[lineNumber] = mutableListOf()
     }
-}
-
-private fun printPercentage(totalNumberOfCombination: Float) {
-    val counter = finished.incrementAndGet().toFloat()
-    val percentage = counter.div(totalNumberOfCombination) * 100.toFloat()
-    log.info("${String.format("%.2f", percentage)}% Finished")
 }
 
 private fun getDiffBetweenColumnsAndLines(): Int {
@@ -168,8 +169,11 @@ private fun getLineCount(): Int {
     return matrix.size
 }
 
-enum class Directions {
-    RIGHT, LEFT, UP, DOWN, DOWN_RIGHT, DOWN_LEFT, UP_RIGHT, UP_LEFT
+enum class Directions(val direction: String) {
+    RIGHT("RIGHT"), LEFT("LEFT"),
+    UP("UP"), DOWN("DOWN"),
+    DOWN_RIGHT("DOWN RIGHT"), DOWN_LEFT("DOWN LEFT"),
+    UP_RIGHT("UP RIGHT"), UP_LEFT("UP LEFT")
 }
 
 enum class Dimensions {
