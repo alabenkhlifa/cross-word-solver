@@ -8,7 +8,6 @@ import okhttp3.Request
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.lang.IllegalArgumentException
 import kotlin.system.exitProcess
 import kotlin.system.measureTimeMillis
 
@@ -26,8 +25,9 @@ var log: Logger = LoggerFactory.getLogger("")
 fun main(args: Array<String>) = runBlocking<Unit> {
     val imageName = args.first()
     val measureTimeMillis = measureTimeMillis {
-        try { inputArgs = args.drop(1).map { Directions.valueOf(it) }.toList() }
-        catch (exception: IllegalArgumentException) {
+        try {
+            inputArgs = args.drop(1).map { Directions.valueOf(it) }.toList()
+        } catch (exception: IllegalArgumentException) {
             log.error("Invalid input directions ! Please check your inputs")
             log.error("args should be one of theses directions : ${Directions.values().map { it.direction }.toList()}")
             exitProcess(1)
