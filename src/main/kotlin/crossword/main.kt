@@ -34,7 +34,7 @@ fun main(args: Array<String>) = runBlocking<Unit> {
         }
         readCrossWords(imageName)
         isMatrixValidOrThrow()
-        inputArgs.forEach { findWordsInLineByDirection(it) }
+        inputArgs.forEach { findWordsByDirection(it) }
         log.info("result : $allResults")
     }
     log.info("The operation took ${measureTimeMillis / 1000} s in total")
@@ -84,37 +84,60 @@ private suspend fun wordExists(word: String): Boolean {
 }
 
 
-private suspend fun findWordsInLineByDirection(direction: Directions) =
+private suspend fun findWordsByDirection(direction: Directions) =
     when (direction) {
-        Directions.RIGHT -> findWordsByRightOrLeft(Directions.RIGHT)
-        Directions.LEFT -> findWordsByRightOrLeft(Directions.LEFT)
-        else -> findWordsByRightOrLeft(Directions.RIGHT)
+        Directions.RIGHT -> findWords(Directions.RIGHT)
+        Directions.LEFT -> findWords(Directions.LEFT)
+        Directions.UP -> findWords(Directions.UP)
+        Directions.DOWN -> findWords(Directions.DOWN)
+        else -> findWords(Directions.RIGHT)
     }
 
-private suspend fun findWordsByRightOrLeft(direction: Directions) {
+private suspend fun findWords(direction: Directions) {
     var resultMap: MutableMap<Int, MutableList<String?>> = mutableMapOf()
-    initResultMap(resultMap)
-    (0 until getLineCount()).forEach {
+    initResultMap(resultMap, direction)
+    var loopCounterByDirection = 0
+    if (direction == Directions.RIGHT || direction == Directions.LEFT)
+        loopCounterByDirection = getLineCount()
+    else if (direction == Directions.UP || direction == Directions.DOWN)
+        loopCounterByDirection = getColumnCount()
+    (0 until loopCounterByDirection).forEach {
         searchByLineAndDirection(it, direction, resultMap)
     }
     allResults[direction] = resultMap
 }
 
 private suspend fun searchByLineAndDirection(
-    lineNumber: Int,
+    lineOrColumnNumber: Int,
     direction: Directions,
     resultMap: MutableMap<Int, MutableList<String?>>
 ) {
-    var fullLine = matrix[lineNumber]
-        .map { it.toString() }
-        .reduce { acc, char -> "$acc$char" }
-    if (direction == Directions.LEFT) {
-        fullLine = fullLine.reversed()
+    val fullWord: String
+    when (direction) {
+        Directions.RIGHT -> fullWord = matrix[lineOrColumnNumber]
+            .map { it.toString() }
+            .reduce { acc, char -> "$acc$char" }
+        Directions.LEFT -> {
+            fullWord = matrix[lineOrColumnNumber]
+                .map { it.toString() }
+                .reduce { acc, char -> "$acc$char" }
+                .reversed()
+        }
+        Directions.DOWN -> fullWord = matrix
+            .map { it.drop(lineOrColumnNumber).first().toString() }
+            .reduce { acc, char -> "$acc$char" }
+        Directions.UP -> {
+            fullWord = matrix
+                .map { it.drop(lineOrColumnNumber).first().toString() }
+                .reduce { acc, char -> "$acc$char" }
+                .reversed()
+        }
+        else -> fullWord = ""
     }
-    for (letterIndex in fullLine.indices) {
-        val word = fullLine.substring(letterIndex)
+    for (letterIndex in fullWord.indices) {
+        val word = fullWord.substring(letterIndex)
         if (word.length >= minimumWordLength) {
-            dropLastAndCheck(word, lineNumber, resultMap)
+            dropLastAndCheck(word, lineOrColumnNumber, resultMap)
         }
     }
     resultMap.forEach { (_, value) ->
@@ -122,25 +145,31 @@ private suspend fun searchByLineAndDirection(
     }
 }
 
-private suspend fun dropLastAndCheck(word: String, lineNumber: Int, result: MutableMap<Int, MutableList<String?>>) {
+private suspend fun dropLastAndCheck(word: String, lineOrColumnNumber: Int, result: MutableMap<Int, MutableList<String?>>) {
     val jobs = ArrayList<Job>()
     for (index in word.length downTo minimumWordLength) {
         jobs.add(ioScope.launch {
             val dropRight = word.dropLast(word.length - index)
-            if (result[lineNumber]!!.contains(dropRight).not() &&
+            if (result[lineOrColumnNumber]!!.contains(dropRight).not() &&
                 wordExists(dropRight)
             ) {
                 log.debug("word found : $dropRight")
-                result[lineNumber]!!.add(dropRight)
+                result[lineOrColumnNumber]!!.add(dropRight)
             }
         })
     }
     jobs.joinAll()
 }
 
-private fun initResultMap(resultMap: MutableMap<Int, MutableList<String?>>) {
-    for (lineNumber in 0 until getLineCount()) {
-        resultMap[lineNumber] = mutableListOf()
+private fun initResultMap(resultMap: MutableMap<Int, MutableList<String?>>, direction: Directions) {
+    if (direction == Directions.RIGHT || direction == Directions.LEFT) {
+        for (lineNumber in 0 until getLineCount()) {
+            resultMap[lineNumber] = mutableListOf()
+        }
+    } else if (direction == Directions.UP || direction == Directions.DOWN) {
+        for (lineNumber in 0 until getColumnCount()) {
+            resultMap[lineNumber] = mutableListOf()
+        }
     }
 }
 
