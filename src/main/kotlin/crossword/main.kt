@@ -18,13 +18,15 @@ var allResults: MutableMap<Directions, MutableMap<Int, MutableList<String?>>> = 
 
 lateinit var inputArgs: List<Directions>
 
+lateinit var words: List<String>
+
 val ioScope = CoroutineScope(Dispatchers.IO + Job())
 
 var log: Logger = LoggerFactory.getLogger("")
 
 fun main(args: Array<String>) = runBlocking<Unit> {
     val imageName = args.first()
-    val measureTimeMillis = measureTimeMillis {
+//    val measureTimeMillis = measureTimeMillis {
         try {
             inputArgs = args.drop(1).map { Directions.valueOf(it) }.toList()
         } catch (exception: IllegalArgumentException) {
@@ -32,13 +34,19 @@ fun main(args: Array<String>) = runBlocking<Unit> {
             log.error("args should be one of theses directions : ${Directions.values().map { it.direction }.toList()}")
             exitProcess(1)
         }
+        loadDictionnaryWords()
         readCrossWords(imageName)
         isMatrixValidOrThrow()
+        printMatrixElements()
         inputArgs.forEach { findWordsByDirection(it) }
         log.info("result : $allResults")
-    }
-    log.info("The operation took ${measureTimeMillis / 1000} s in total")
+//    }
+//    log.info("The operation took $measureTimeMillis ms in total")
     exitProcess(0)
+}
+
+private fun loadDictionnaryWords() {
+    words = readFileAsLinesUsingBufferedReader("words_alpha.txt").map { it.toUpperCase() }
 }
 
 private fun readCrossWords(imageName: String) {
@@ -59,11 +67,11 @@ private fun readCrossWords(imageName: String) {
 
 private fun printMatrixElements() {
     matrix.forEach {
-        log.info("$it : ${it.size}")
+        log.info("$it")
     }
 }
 
-private suspend fun wordExists(word: String): Boolean {
+private suspend fun wordExistsFromAPI(word: String): Boolean {
     return withContext(Dispatchers.IO) {
         val httpClient = OkHttpClient()
         val response = httpClient.newCall(
@@ -82,6 +90,9 @@ private suspend fun wordExists(word: String): Boolean {
         response.isSuccessful
     }
 }
+
+private fun wordExists(word: String) = words.binarySearch(word) > 0
+
 
 
 private suspend fun findWordsByDirection(direction: Directions) =
@@ -208,3 +219,5 @@ enum class Directions(val direction: String) {
 enum class Dimensions {
     LINE, COLUMN
 }
+fun readFileAsLinesUsingBufferedReader(fileName: String): List<String>
+        = File(fileName).bufferedReader().readLines()
